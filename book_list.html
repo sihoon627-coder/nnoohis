@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Book list</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Noto Sans KR -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&family=Noto+Sans+KR:wght@300;400;500;600&display=swap" rel="stylesheet">
+  
+  <!-- SheetJS Library for Excel Import/Export -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Inter', 'Noto Sans KR', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: #FFFFFF;
+      color: #111111;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    ::-webkit-scrollbar {
+      width: 4px;
+      height: 4px;
+    }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #E5E5E5; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #CCCCCC; }
+
+    .modal-backdrop {
+      background-color: rgba(0, 0, 0, 0.35);
+    }
+
+    /* Notion-inspired soft status colors */
+    .badge-read {
+      background-color: #E2F1E7;
+      color: #1E6B37;
+    }
+    .badge-reading {
+      background-color: #E3F2FD;
+      color: #1565C0;
+    }
+    .badge-toread {
+      background-color: #FFF3D6;
+      color: #8C6D00;
+    }
+    .badge-dropped {
+      background-color: #FCE8E6;
+      color: #C5221F;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between selection:bg-gray-100">
+
+  <!-- Main Wrapper -->
+  <div class="max-w-4xl mx-auto w-full px-5 py-8 flex-1">
+    
+    <!-- Top Header -->
+    <header class="flex items-center justify-between pb-4 mb-6 border-b border-gray-100">
+      <div>
+        <h1 class="text-lg font-semibold tracking-tight text-gray-900">Book list</h1>
+        <span id="total-books-text" class="text-xs text-gray-400 font-normal">0 books</span>
+      </div>
+      <div class="flex items-center space-x-2">
+        <input type="file" id="excel-file-input" accept=".xlsx, .xls, .csv" class="hidden">
+        <button id="import-btn" class="text-xs font-medium text-gray-600 hover:text-black border border-gray-200 hover:border-gray-900 px-2.5 py-1 rounded transition-all">
+          불러오기
+        </button>
+        <button id="export-btn" class="text-xs font-medium text-gray-600 hover:text-black border border-gray-200 hover:border-gray-900 px-2.5 py-1 rounded transition-all">
+          내보내기
+        </button>
+        <button id="add-book-btn" class="text-xs font-medium text-gray-600 hover:text-black border border-gray-200 hover:border-gray-900 px-2.5 py-1 rounded transition-all">
+          + 추가
+        </button>
+      </div>
+    </header>
+
+    <!-- Filter Tabs & Controls -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+      <!-- Tabs (5 filters) -->
+      <nav class="flex space-x-4 text-xs font-medium border-b border-transparent overflow-x-auto pb-1 sm:pb-0">
+        <button data-filter="all" class="filter-btn text-black pb-1 border-b-2 border-black transition-colors whitespace-nowrap">
+          전체 <span id="count-all" class="text-[10px] text-gray-400 font-normal ml-0.5">0</span>
+        </button>
+        <button data-filter="READ" class="filter-btn text-gray-400 hover:text-gray-700 pb-1 border-b-2 border-transparent transition-colors whitespace-nowrap">
+          읽은 책 <span id="count-read" class="text-[10px] text-gray-400 font-normal ml-0.5">0</span>
+        </button>
+        <button data-filter="READING" class="filter-btn text-gray-400 hover:text-gray-700 pb-1 border-b-2 border-transparent transition-colors whitespace-nowrap">
+          읽는 중 <span id="count-reading" class="text-[10px] text-gray-400 font-normal ml-0.5">0</span>
+        </button>
+        <button data-filter="TO_READ" class="filter-btn text-gray-400 hover:text-gray-700 pb-1 border-b-2 border-transparent transition-colors whitespace-nowrap">
+          읽을 책 <span id="count-toread" class="text-[10px] text-gray-400 font-normal ml-0.5">0</span>
+        </button>
+        <button data-filter="DROPPED" class="filter-btn text-gray-400 hover:text-gray-700 pb-1 border-b-2 border-transparent transition-colors whitespace-nowrap">
+          중도포기 <span id="count-dropped" class="text-[10px] text-gray-400 font-normal ml-0.5">0</span>
+        </button>
+      </nav>
+
+      <!-- Search & View Mode Switcher -->
+      <div class="flex items-center space-x-2 w-full sm:w-auto">
+        <!-- Sort Control -->
+        <select id="sort-select" class="text-xs py-1 px-2 bg-gray-50 border border-gray-200 rounded focus:outline-none focus:border-gray-400 text-gray-800">
+          <option value="latest">등록순</option>
+          <option value="score-desc">점수 높은 순</option>
+          <option value="score-asc">점수 낮은 순</option>
+        </select>
+
+        <input type="text" id="search-input" placeholder="검색" class="w-full sm:w-36 text-xs py-1 px-2 bg-gray-50 border border-gray-200 rounded focus:outline-none focus:border-gray-400 text-gray-800">
+        
+        <!-- View Switch Buttons -->
+        <div class="flex border border-gray-200 rounded overflow-hidden text-xs">
+          <button id="view-grid-btn" class="px-2 py-1 bg-gray-900 text-white font-medium">카드</button>
+          <button id="view-list-btn" class="px-2 py-1 bg-white text-gray-500 hover:text-black">목록</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Book Grid Container -->
+    <div id="books-grid" class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-4">
+      <!-- Dynamically rendered Grid items -->
+    </div>
+
+    <!-- Book List Table Container -->
+    <div id="books-list" class="hidden border border-gray-100 rounded overflow-hidden">
+      <div class="divide-y divide-gray-100" id="list-items-container">
+        <!-- Dynamically rendered List items -->
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="py-20 text-center hidden">
+      <p class="text-xs text-gray-400">등록된 책이 없습니다.</p>
+    </div>
+
+    <!-- Clear Data Link -->
+    <div class="mt-12 text-center">
+      <button id="clear-data-btn" class="text-[10px] text-gray-300 hover:text-red-400 transition-colors underline">
+        책장 비우기
+      </button>
+    </div>
+  </div>
+
+
+  <!-- BOOK DETAIL MODAL -->
+  <div id="detail-modal" class="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-200">
+    <div class="bg-white w-full max-w-lg rounded-lg shadow-xl overflow-hidden p-5 sm:p-6 relative transition-transform duration-200 scale-95" id="detail-modal-card">
+      
+      <!-- Close Button -->
+      <button id="close-detail-btn" class="absolute top-5 right-5 text-xs text-gray-400 hover:text-black">
+        닫기 ✕
+      </button>
+
+      <!-- Detail Content -->
+      <div class="flex flex-col sm:flex-row gap-5">
+        <!-- Main Image Preview + Thumbnail Selector -->
+        <div id="detail-cover-wrapper" class="w-28 sm:w-32 flex-shrink-0 flex flex-col space-y-2">
+          <div class="aspect-2/3 bg-gray-100 rounded overflow-hidden border border-gray-100">
+            <img id="detail-cover-img" src="" class="w-full h-full object-cover" alt="Cover">
+          </div>
+          <!-- Thumbnail Strip -->
+          <div id="detail-thumbnails" class="flex space-x-1.5 overflow-x-auto pb-1">
+            <!-- Dynamic thumbnails -->
+          </div>
+        </div>
+
+        <!-- Info Table -->
+        <div class="flex-1 space-y-3.5">
+          <!-- Title -->
+          <h2 id="detail-title" class="text-base font-semibold text-gray-900 tracking-tight leading-snug"></h2>
+
+          <div class="space-y-2.5 text-xs">
+            <!-- Status -->
+            <div class="flex items-center">
+              <span class="w-14 text-gray-400 font-normal">상태</span>
+              <span id="detail-status" class="px-2 py-0.5 rounded text-[11px] font-medium"></span>
+            </div>
+
+            <!-- Author -->
+            <div class="flex items-center">
+              <span class="w-14 text-gray-400 font-normal">저자</span>
+              <span id="detail-author" class="text-gray-800 font-medium"></span>
+            </div>
+
+            <!-- Score -->
+            <div class="flex items-center">
+              <span class="w-14 text-gray-400 font-normal">평점</span>
+              <div class="flex items-center space-x-2 flex-1">
+                <span id="detail-score-num" class="font-mono text-gray-700 w-8 text-[11px]"></span>
+                <div class="w-28 h-1 bg-gray-100 rounded-full overflow-hidden">
+                  <div id="detail-score-bar" class="h-full rounded-full" style="width: 0%"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Memo -->
+            <div class="flex items-start pt-1 border-t border-gray-50">
+              <span class="w-14 text-gray-400 font-normal pt-0.5">메모</span>
+              <p id="detail-memo" class="flex-1 text-gray-700 leading-relaxed font-normal whitespace-pre-wrap text-[11px]"></p>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="pt-3 border-t border-gray-100 flex justify-end space-x-3">
+            <button id="detail-edit-btn" class="text-xs text-gray-500 hover:text-black transition-colors">수정</button>
+            <button id="detail-delete-btn" class="text-xs text-red-500 hover:text-red-700 transition-colors">삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ADD / EDIT MODAL -->
+  <div id="form-modal" class="fixed inset-0 modal-backdrop z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-200">
+    <div class="bg-white w-full max-w-md rounded-lg shadow-xl overflow-hidden p-5 relative transition-transform duration-200 scale-95 max-h-[90vh] overflow-y-auto" id="form-modal-card">
+      
+      <div class="flex justify-between items-center mb-4 pb-2 border-b border-gray-100">
+        <h3 id="form-modal-title" class="text-xs font-semibold text-gray-900">책 추가</h3>
+        <button id="close-form-btn" class="text-xs text-gray-400 hover:text-black">닫기 ✕</button>
+      </div>
+
+      <form id="book-form" class="space-y-3 text-xs">
+        <input type="hidden" id="form-id">
+
+        <!-- Title -->
+        <div>
+          <label class="block text-gray-500 font-medium mb-1">제목 *</label>
+          <input type="text" id="form-title" required class="w-full px-2.5 py-1.5 border border-gray-200 rounded focus:outline-none focus:border-gray-900 text-gray-900">
+        </div>
+
+        <!-- Author & Status -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <div>
+            <label class="block text-gray-500 font-medium mb-1">저자</label>
+            <input type="text" id="form-author" class="w-full px-2.5 py-1.5 border border-gray-200 rounded focus:outline-none focus:border-gray-900 text-gray-900">
+          </div>
+          <div>
+            <label class="block text-gray-500 font-medium mb-1">독서 상태</label>
+            <select id="form-status" class="w-full px-2 py-1.5 border border-gray-200 rounded focus:outline-none focus:border-gray-900 text-gray-900 bg-white">
+              <option value="READ">읽은 책</option>
+              <option value="READING">읽는 중</option>
+              <option value="TO_READ">읽을 책</option>
+              <option value="DROPPED">중도포기</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Score -->
+        <div>
+          <div class="flex justify-between items-center mb-1">
+            <label class="text-gray-500 font-medium">평점 (0 ~ 100)</label>
+            <input type="number" id="form-score-num" min="0" max="100" value="0" class="w-14 px-1.5 py-0.5 text-right font-mono text-xs border border-gray-200 rounded focus:outline-none focus:border-gray-900 text-gray-900">
+          </div>
+          <input type="range" id="form-score" min="0" max="100" value="0" class="w-full accent-gray-900 h-1 bg-gray-200 rounded appearance-none cursor-pointer">
+        </div>
+
+        <!-- Multiple Cover Images Management -->
+        <div class="pt-1">
+          <label class="block text-gray-500 font-medium mb-1">이미지</label>
+          
+          <div class="flex space-x-2 mb-2">
+            <input type="url" id="form-image-url-input" placeholder="URL 입력" class="flex-1 px-2.5 py-1 border border-gray-200 rounded text-gray-900 focus:outline-none focus:border-gray-900">
+            <button type="button" id="add-url-img-btn" class="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded font-medium">URL 추가</button>
+          </div>
+
+          <div class="mb-2">
+            <label class="cursor-pointer inline-block px-2.5 py-1 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded text-gray-600">
+              + 파일 선택
+              <input type="file" id="form-image-files-input" accept="image/*" multiple class="hidden">
+            </label>
+          </div>
+
+          <!-- Image Order List Preview -->
+          <div id="image-list-preview" class="space-y-1.5 max-h-36 overflow-y-auto border border-gray-100 p-2 rounded bg-gray-50">
+            <!-- Dynamic Image items -->
+          </div>
+        </div>
+
+        <!-- Memo -->
+        <div>
+          <label class="block text-gray-500 font-medium mb-1">메모</label>
+          <textarea id="form-memo" rows="3" class="w-full px-2.5 py-1.5 border border-gray-200 rounded focus:outline-none focus:border-gray-900 text-gray-900 resize-none"></textarea>
+        </div>
+
+        <!-- Submit Buttons -->
+        <div class="flex justify-end space-x-2 pt-2 border-t border-gray-100">
+          <button type="button" id="cancel-form-btn" class="px-3 py-1 text-gray-500 hover:text-black">취소</button>
+          <button type="submit" class="px-3.5 py-1 bg-black text-white rounded hover:bg-gray-800 transition-colors">저장</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // 초기 접속 시 저장된 데이타 없이 완전히 빈 목록으로 시작하도록 초기화
+    let books = JSON.parse(localStorage.getItem('my_books') || '[]');
+    let currentFilter = 'all';
+    let searchQuery = '';
+    let currentSort = 'latest';
+    let currentViewMode = 'grid';
+    let selectedBookId = null;
+    let tempImages = [];
+
+    const STATUS_MAP = {
+      READ: { label: '읽은 책', badgeClass: 'badge-read', barClass: 'bg-emerald-600' },
+      READING: { label: '읽는 중', badgeClass: 'badge-reading', barClass: 'bg-blue-600' },
+      TO_READ: { label: '읽을 책', badgeClass: 'badge-toread', barClass: 'bg-amber-500' },
+      DROPPED: { label: '중도포기', badgeClass: 'badge-dropped', barClass: 'bg-red-500' }
+    };
+
+    const booksGrid = document.getElementById('books-grid');
+    const booksList = document.getElementById('books-list');
+    const listItemsContainer = document.getElementById('list-items-container');
+    const emptyState = document.getElementById('empty-state');
+    const searchInput = document.getElementById('search-input');
+    const totalBooksText = document.getElementById('total-books-text');
+    const viewGridBtn = document.getElementById('view-grid-btn');
+    const viewListBtn = document.getElementById('view-list-btn');
+    const detailModal = document.getElementById('detail-modal');
+    const formModal = document.getElementById('form-modal');
+    const bookForm = document.getElementById('book-form');
+    const scoreRange = document.getElementById('form-score');
+    const scoreNumInput = document.getElementById('form-score-num');
+
+    window.addEventListener('DOMContentLoaded', () => {
+      bindEvents();
+      render();
+    });
+
+    // 로컬 스토리지 초기화 및 저장 관련
+    function saveBooksToStorage() {
+      localStorage.setItem('my_books', JSON.stringify(books));
+    }
+
+    function formatScore(score) {
+      const num = Number(score);
+      if (score === null || score === undefined || score === '' || isNaN(num) || num === 0) {
+        return '-';
+      }
+      return `${num} pt`;
+    }
+
+    function getFilteredBooks() {
+      const filtered = books.filter(book => {
+        const matchFilter = currentFilter === 'all' || book.status === currentFilter;
+        const q = searchQuery.toLowerCase().trim();
+        const matchQuery = !q || 
+          (book.title && book.title.toLowerCase().includes(q)) || 
+          (book.author && book.author.toLowerCase().includes(q)) ||
+          (book.memo && book.memo.toLowerCase().includes(q));
+        return matchFilter && matchQuery;
+      });
+
+      return filtered.sort((a, b) => {
+        const scoreA = (a.score !== null && a.score !== undefined && a.score !== '') ? Number(a.score) : 0;
+        const scoreB = (b.score !== null && b.score !== undefined && b.score !== '') ? Number(b.score) : 0;
+
+        if (currentSort === 'score-desc') {
+          return scoreB - scoreA;
+        } else if (currentSort === 'score-asc') {
+          return scoreA - scoreB;
+        } else {
+          return (b.createdAt || 0) - (a.createdAt || 0);
+        }
+      });
+    }
+
+    function updateCounts() {
+      document.getElementById('count-all').textContent = books.length;
+      document.getElementById('count-read').textContent = books.filter(b => b.status === 'READ').length;
+      document.getElementById('count-reading').textContent = books.filter(b => b.status === 'READING').length;
+      document.getElementById('count-toread').textContent = books.filter(b => b.status === 'TO_READ').length;
+      document.getElementById('count-dropped').textContent = books.filter(b => b.status === 'DROPPED').length;
+      totalBooksText.textContent = `${books.length} books`;
+    }
+
+    function render() {
+      updateCounts();
+      const filtered = getFilteredBooks();
+      if (filtered.length === 0) {
+        booksGrid.classList.add('hidden');
+        booksList.classList.add('hidden');
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      emptyState.classList.add('hidden');
+      if (currentViewMode === 'grid') {
+        booksList.classList.add('hidden');
+        booksGrid.classList.remove('hidden');
+        renderGrid(filtered);
+      } else {
+        booksGrid.classList.add('hidden');
+        booksList.classList.remove('hidden');
+        renderList(filtered);
+      }
+    }
+
+    function renderGrid(items) {
+      booksGrid.innerHTML = items.map(book => {
+        const cover = (book.images && book.images.length > 0) ? book.images[0] : 'https://placehold.co/300x450/F3F4F6/9CA3AF?text=No+Cover';
+        const statusConfig = STATUS_MAP[book.status] || STATUS_MAP.READ;
+        const scoreText = formatScore(book.score);
+
+        return `
+          <div class="group flex flex-col">
+            <div onclick="openDetailModal('${book.id}')" class="aspect-2/3 bg-gray-50 rounded overflow-hidden border border-gray-100 relative shadow-xs group-hover:shadow transition-all duration-200 cursor-pointer">
+              <img src="${cover}" alt="${book.title}" class="w-full h-full object-cover group-hover:scale-102 transition-transform duration-300" onerror="this.src='https://placehold.co/300x450/F3F4F6/9CA3AF?text=No+Cover'">
+            </div>
+            <div class="mt-2">
+              <h3 onclick="openDetailModal('${book.id}')" class="text-xs font-medium text-gray-900 truncate group-hover:underline leading-tight cursor-pointer">${book.title}</h3>
+              <div class="flex items-center justify-between mt-1 text-[10px]">
+                <span class="text-gray-400 truncate max-w-[55%]">${book.author || '-'}</span>
+                <span class="px-1.5 py-0.2 rounded ${statusConfig.badgeClass}">${statusConfig.label}</span>
+              </div>
+              <div class="mt-1 flex items-center justify-between text-[10px]">
+                <span id="score-display-${book.id}" onclick="startInlineScoreEdit(event, '${book.id}')" class="font-mono text-gray-600 font-medium hover:bg-gray-100 px-1 rounded cursor-pointer transition-colors" title="클릭하여 점수 바로 수정">
+                  ${scoreText}
+                </span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderList(items) {
+      listItemsContainer.innerHTML = items.map(book => {
+        const statusConfig = STATUS_MAP[book.status] || STATUS_MAP.READ;
+        const scoreText = formatScore(book.score);
+
+        return `
+          <div class="flex items-center justify-between px-3.5 py-2.5 hover:bg-gray-50 transition-colors text-xs">
+            <div onclick="openDetailModal('${book.id}')" class="min-w-0 flex-1 pr-4 cursor-pointer">
+              <span class="font-medium text-gray-900 truncate block">${book.title}</span>
+            </div>
+            <div onclick="openDetailModal('${book.id}')" class="w-28 text-gray-400 truncate hidden sm:block text-[11px] cursor-pointer">
+              ${book.author || '-'}
+            </div>
+            <div class="w-20 text-right pr-4 text-[11px]">
+              <span id="score-display-${book.id}" onclick="startInlineScoreEdit(event, '${book.id}')" class="font-mono text-gray-600 font-medium hover:bg-gray-100 px-1 rounded cursor-pointer transition-colors inline-block" title="클릭하여 점수 바로 수정">
+                ${scoreText}
+              </span>
+            </div>
+            <div onclick="openDetailModal('${book.id}')" class="w-20 flex justify-center flex-shrink-0 cursor-pointer">
+              <span class="w-full text-center px-2 py-0.5 rounded text-[11px] font-medium ${statusConfig.badgeClass}">
+                ${statusConfig.label}
+              </span>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function startInlineScoreEdit(event, bookId) {
+      event.stopPropagation();
+      const book = books.find(b => b.id === bookId);
+      if (!book) return;
+
+      const container = document.getElementById(`score-display-${bookId}`);
+      if (!container) return;
+
+      const currentVal = (book.score !== null && book.score !== undefined) ? book.score : 0;
+
+      container.outerHTML = `
+        <input type="number" id="inline-score-input-${bookId}" min="0" max="100" value="${currentVal}" 
+          class="w-12 text-center font-mono text-xs border border-gray-400 rounded px-1 py-0.5 focus:outline-none focus:border-black text-gray-900 bg-white"
+          onblur="saveInlineScore('${bookId}')"
+          onkeydown="if(event.key==='Enter'){ this.blur(); }">
+      `;
+
+      const input = document.getElementById(`inline-score-input-${bookId}`);
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+
+    function saveInlineScore(bookId) {
+      const input = document.getElementById(`inline-score-input-${bookId}`);
+      if (!input) return;
+
+      const valStr = input.value.trim();
+      let newScore = 0;
+      if (valStr !== '') {
+        let parsed = parseInt(valStr, 10);
+        if (isNaN(parsed) || parsed < 0) parsed = 0;
+        if (parsed > 100) parsed = 100;
+        newScore = parsed;
+      }
+
+      const book = books.find(b => b.id === bookId);
+      if (book) {
+        book.score = newScore;
+        saveBooksToStorage();
+      }
+      render();
+    }
+
+    function openDetailModal(id) {
+      const book = books.find(b => b.id === id);
+      if (!book) return;
+      selectedBookId = id;
+      const statusConfig = STATUS_MAP[book.status] || STATUS_MAP.READ;
+      document.getElementById('detail-title').textContent = book.title;
+      document.getElementById('detail-author').textContent = book.author || '-';
+      document.getElementById('detail-memo').textContent = book.memo || '-';
+
+      const numScore = Number(book.score || 0);
+      const hasScore = numScore > 0;
+      document.getElementById('detail-score-num').textContent = hasScore ? numScore : '-';
+      document.getElementById('detail-score-bar').style.width = hasScore ? `${numScore}%` : '0%';
+      document.getElementById('detail-score-bar').className = `h-full ${statusConfig.barClass} rounded-full`;
+
+      const statusEl = document.getElementById('detail-status');
+      statusEl.textContent = statusConfig.label;
+      statusEl.className = `px-2 py-0.5 rounded text-[11px] font-medium ${statusConfig.badgeClass}`;
+      const images = book.images && book.images.length > 0 ? book.images : [];
+      const mainCoverImg = document.getElementById('detail-cover-img');
+      const thumbnailsContainer = document.getElementById('detail-thumbnails');
+      if (images.length > 0) {
+        mainCoverImg.src = images[0];
+        document.getElementById('detail-cover-wrapper').classList.remove('hidden');
+        if (images.length > 1) {
+          thumbnailsContainer.classList.remove('hidden');
+          thumbnailsContainer.innerHTML = images.map((imgUrl) => `
+            <img src="${imgUrl}" onclick="setDetailMainImage('${imgUrl}')" class="w-7 h-10 object-cover rounded border border-gray-200 cursor-pointer hover:opacity-80 transition-opacity flex-shrink-0">
+          `).join('');
+        } else {
+          thumbnailsContainer.classList.add('hidden');
+        }
+      } else {
+        mainCoverImg.src = 'https://placehold.co/300x450/F3F4F6/9CA3AF?text=No+Cover';
+        thumbnailsContainer.classList.add('hidden');
+      }
+      showModal(detailModal, 'detail-modal-card');
+    }
+
+    function openFormModal(id = null) {
+      bookForm.reset();
+      scoreNumInput.value = 0;
+      scoreRange.value = 0;
+      tempImages = [];
+      if (id) {
+        const book = books.find(b => b.id === id);
+        if (book) {
+          document.getElementById('form-modal-title').textContent = '책 정보 수정';
+          document.getElementById('form-id').value = book.id;
+          document.getElementById('form-title').value = book.title;
+          document.getElementById('form-author').value = book.author || '';
+          document.getElementById('form-status').value = book.status;
+
+          const numScore = Number(book.score || 0);
+          scoreNumInput.value = numScore;
+          scoreRange.value = numScore;
+
+          document.getElementById('form-memo').value = book.memo || '';
+          tempImages = book.images ? [...book.images] : [];
+        }
+      } else {
+        document.getElementById('form-modal-title').textContent = '새 책 추가';
+        document.getElementById('form-id').value = '';
+      }
+      renderFormImageList();
+      showModal(formModal, 'form-modal-card');
+    }
+
+    function exportToExcel() {
+      if (books.length === 0) {
+        alert('내보낼 책 데이터가 없습니다.');
+        return;
+      }
+      const dataToExport = books.map(b => ({
+        '제목': b.title,
+        '저자': b.author || '',
+        '상태': STATUS_MAP[b.status] ? STATUS_MAP[b.status].label : b.status,
+        '평점': Number(b.score || 0),
+        '메모': b.memo || '',
+        '이미지URL': (b.images && b.images.length > 0) ? b.images.join('; ') : '',
+        '등록일': b.createdAt ? new Date(b.createdAt).toLocaleString() : ''
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(dataToExport);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "내 책장");
+      XLSX.writeFile(workbook, `책장목록_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    function importFromExcel(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const data = new Uint8Array(evt.target.result);
+          const workbook = XLSX.read(data, { type: 'array' });
+          const firstSheetName = workbook.SheetNames[0];
+          const worksheet = workbook.Sheets[firstSheetName];
+          const rawData = XLSX.utils.sheet_to_json(worksheet);
+
+          let importedCount = 0;
+          let duplicateCount = 0;
+
+          rawData.forEach(row => {
+            const title = (row['제목'] || row['title'] || row['Title'] || '').toString().trim();
+            if (!title) return;
+
+            const author = (row['저자'] || row['author'] || '').toString().trim();
+
+            // 제목과 저자가 동일하면 중복으로 걸러냄
+            const isDuplicate = books.some(b => {
+              const existingTitle = (b.title || '').trim().toLowerCase();
+              const existingAuthor = (b.author || '').trim().toLowerCase();
+              return existingTitle === title.toLowerCase() && existingAuthor === author.toLowerCase();
+            });
+
+            if (isDuplicate) {
+              duplicateCount++;
+              return;
+            }
+
+            let status = 'READ';
+            const rawStatus = (row['상태'] || row['status'] || '').toString();
+            if (rawStatus.includes('중') || rawStatus === 'READING') status = 'READING';
+            else if (rawStatus.includes('읽을') || rawStatus === 'TO_READ') status = 'TO_READ';
+            else if (rawStatus.includes('포기') || rawStatus === 'DROPPED') status = 'DROPPED';
+
+            const rawImages = row['이미지URL'] || row['images'] || row['image'] || '';
+            const images = rawImages ? rawImages.split(';').map(s => s.trim()).filter(Boolean) : [];
+
+            const rawScore = row['평점'] !== undefined ? row['평점'] : (row['score'] !== undefined ? row['score'] : 0);
+            let parsedScore = 0;
+            if (rawScore !== '' && rawScore !== null && !isNaN(Number(rawScore))) {
+              parsedScore = parseInt(rawScore, 10);
+              if (parsedScore < 0) parsedScore = 0;
+              if (parsedScore > 100) parsedScore = 100;
+            }
+
+            books.unshift({
+              id: 'book-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5),
+              title: title,
+              author: author,
+              status: status,
+              score: parsedScore,
+              images: images,
+              memo: (row['메모'] || row['memo'] || '').toString(),
+              createdAt: Date.now()
+            });
+            importedCount++;
+          });
+
+          saveBooksToStorage();
+          render();
+          
+          let msg = `${importedCount}권의 책을 불러왔습니다.`;
+          if (duplicateCount > 0) {
+            msg += ` (중복된 책 ${duplicateCount}권 제외)`;
+          }
+          alert(msg);
+        } catch (err) {
+          alert('엑셀 파일을 읽는 중 오류가 발생했습니다.');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    }
+
+    function showModal(modalEl, cardId) {
+      modalEl.classList.remove('hidden');
+      setTimeout(() => {
+        modalEl.classList.remove('opacity-0');
+        document.getElementById(cardId).classList.remove('scale-95');
+      }, 10);
+    }
+
+    function hideModal(modalEl, cardId) {
+      modalEl.classList.add('opacity-0');
+      document.getElementById(cardId).classList.add('scale-95');
+      setTimeout(() => {
+        modalEl.classList.add('hidden');
+      }, 200);
+    }
+
+    function closeDetailModal() {
+      hideModal(detailModal, 'detail-modal-card');
+    }
+
+    function closeFormModal() {
+      hideModal(formModal, 'form-modal-card');
+    }
+
+    function setDetailMainImage(url) {
+      document.getElementById('detail-cover-img').src = url;
+    }
+
+    function renderFormImageList() {
+      const container = document.getElementById('image-list-preview');
+      if (tempImages.length === 0) {
+        container.innerHTML = `<span class="text-[11px] text-gray-400">등록된 이미지가 없습니다.</span>`;
+        return;
+      }
+
+      container.innerHTML = tempImages.map((img, idx) => `
+        <div class="flex items-center justify-between bg-white p-1.5 rounded border border-gray-200 text-[11px]">
+          <div class="flex items-center space-x-2 truncate flex-1 pr-2">
+            <img src="${img}" class="w-5 h-7 object-cover rounded flex-shrink-0">
+            <span class="truncate text-gray-600">${idx === 0 ? '<b>[대표]</b> ' : ''}${img.substring(0, 30)}...</span>
+          </div>
+          <div class="flex items-center space-x-1 flex-shrink-0">
+            ${idx > 0 ? `<button type="button" onclick="moveImage(${idx}, -1)" class="px-1 text-gray-500 hover:text-black">▲</button>` : ''}
+            ${idx < tempImages.length - 1 ? `<button type="button" onclick="moveImage(${idx}, 1)" class="px-1 text-gray-500 hover:text-black">▼</button>` : ''}
+            <button type="button" onclick="removeImage(${idx})" class="px-1 text-red-500 hover:text-red-700">✕</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function moveImage(index, direction) {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= tempImages.length) return;
+      const temp = tempImages[index];
+      tempImages[index] = tempImages[targetIndex];
+      tempImages[targetIndex] = temp;
+      renderFormImageList();
+    }
+
+    function removeImage(index) {
+      tempImages.splice(index, 1);
+      renderFormImageList();
+    }
+
+    function bindEvents() {
+      document.getElementById('add-book-btn').addEventListener('click', () => openFormModal());
+      document.getElementById('close-detail-btn').addEventListener('click', closeDetailModal);
+      document.getElementById('close-form-btn').addEventListener('click', closeFormModal);
+      document.getElementById('cancel-form-btn').addEventListener('click', closeFormModal);
+
+      // Clear All Data
+      document.getElementById('clear-data-btn').addEventListener('click', () => {
+        if (confirm('저장된 책장 데이터를 모두 삭제하시겠습니까?')) {
+          books = [];
+          localStorage.removeItem('my_books');
+          render();
+        }
+      });
+
+      // Excel Buttons
+      document.getElementById('export-btn').addEventListener('click', exportToExcel);
+      document.getElementById('import-btn').addEventListener('click', () => {
+        document.getElementById('excel-file-input').click();
+      });
+      document.getElementById('excel-file-input').addEventListener('change', importFromExcel);
+
+      // Edit / Delete in Detail Modal
+      document.getElementById('detail-edit-btn').addEventListener('click', () => {
+        closeDetailModal();
+        setTimeout(() => openFormModal(selectedBookId), 210);
+      });
+
+      document.getElementById('detail-delete-btn').addEventListener('click', () => {
+        if (selectedBookId) {
+          books = books.filter(b => b.id !== selectedBookId);
+          saveBooksToStorage();
+          closeDetailModal();
+          render();
+        }
+      });
+
+      // View Mode Switcher
+      viewGridBtn.addEventListener('click', () => {
+        currentViewMode = 'grid';
+        viewGridBtn.className = 'px-2 py-1 bg-gray-900 text-white font-medium';
+        viewListBtn.className = 'px-2 py-1 bg-white text-gray-500 hover:text-black';
+        render();
+      });
+
+      viewListBtn.addEventListener('click', () => {
+        currentViewMode = 'list';
+        viewListBtn.className = 'px-2 py-1 bg-gray-900 text-white font-medium';
+        viewGridBtn.className = 'px-2 py-1 bg-white text-gray-500 hover:text-black';
+        render();
+      });
+
+      // Filters
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.filter-btn').forEach(b => {
+            b.classList.remove('text-black', 'border-black');
+            b.classList.add('text-gray-400', 'border-transparent');
+          });
+          btn.classList.add('text-black', 'border-black');
+          btn.classList.remove('text-gray-400', 'border-transparent');
+          currentFilter = btn.getAttribute('data-filter');
+          render();
+        });
+      });
+
+      // Sort Select
+      document.getElementById('sort-select').addEventListener('change', (e) => {
+        currentSort = e.target.value;
+        render();
+      });
+
+      // Search Box
+      searchInput.addEventListener('input', (e) => {
+        searchQuery = e.target.value;
+        render();
+      });
+
+      // Score Inputs Sync
+      scoreRange.addEventListener('input', (e) => {
+        scoreNumInput.value = e.target.value;
+      });
+
+      scoreNumInput.addEventListener('input', (e) => {
+        let val = parseInt(e.target.value, 10);
+        if (isNaN(val)) val = 0;
+        if (val < 0) val = 0;
+        if (val > 100) val = 100;
+        scoreRange.value = val;
+      });
+
+      // Image URL Add Button
+      document.getElementById('add-url-img-btn').addEventListener('click', () => {
+        const input = document.getElementById('form-image-url-input');
+        const url = input.value.trim();
+        if (url) {
+          tempImages.push(url);
+          input.value = '';
+          renderFormImageList();
+        }
+      });
+
+      // Image Files Input
+      document.getElementById('form-image-files-input').addEventListener('change', (e) => {
+        const files = Array.from(e.target.files);
+        if (files.length === 0) return;
+        let processed = 0;
+        files.forEach(file => {
+          const reader = new FileReader();
+          reader.onload = (evt) => {
+            tempImages.push(evt.target.result);
+            processed++;
+            if (processed === files.length) {
+              renderFormImageList();
+            }
+          };
+          reader.readAsDataURL(file);
+        });
+      });
+
+      // Save Form Submission
+      bookForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const id = document.getElementById('form-id').value || ('book-' + Date.now() + '-' + Math.random().toString(36).substr(2, 5));
+        const title = document.getElementById('form-title').value.trim();
+        const author = document.getElementById('form-author').value.trim();
+        const status = document.getElementById('form-status').value;
+        const scoreVal = parseInt(scoreNumInput.value, 10) || 0;
+        const memo = document.getElementById('form-memo').value.trim();
+
+        const existingIndex = books.findIndex(b => b.id === id);
+        const bookObj = {
+          id,
+          title,
+          author,
+          status,
+          score: scoreVal,
+          images: [...tempImages],
+          memo,
+          createdAt: existingIndex !== -1 ? (books[existingIndex].createdAt || Date.now()) : Date.now()
+        };
+
+        if (existingIndex !== -1) {
+          books[existingIndex] = bookObj;
+        } else {
+          books.unshift(bookObj);
+        }
+
+        saveBooksToStorage();
+        closeFormModal();
+        render();
+      });
+    }
+  </script>
+</body>
+</html>
